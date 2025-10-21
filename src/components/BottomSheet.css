@@ -1,0 +1,119 @@
+.bottom-sheet-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.bottom-sheet-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.bottom-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-panel-solid);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  will-change: transform;
+  transform-origin: center bottom;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh; /* Use dynamic viewport height */
+}
+
+.bottom-sheet-handle {
+  width: 36px;
+  height: 4px;
+  background-color: var(--gray-8);
+  border-radius: 2px;
+  margin: 12px auto 8px;
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+}
+
+.bottom-sheet-handle:active {
+  cursor: grabbing;
+}
+
+.bottom-sheet-content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 0 16px 16px;
+  min-height: 0;
+}
+
+.bottom-sheet-content::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .bottom-sheet {
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+  }
+  
+  .bottom-sheet-handle {
+    width: 40px;
+    height: 5px;
+    margin: 16px auto 12px;
+  }
+  
+  .bottom-sheet-content {
+    padding: 0 20px 20px;
+  }
+}
+
+/* Add safe area support for iOS */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .bottom-sheet-content {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  
+  @media (max-width: 768px) {
+    .bottom-sheet-content {
+      padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    }
+  }
+}
+
+/* Native-like touch feedback */
+.bottom-sheet * {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth transitions for better feel */
+.bottom-sheet-backdrop,
+.bottom-sheet {
+  transition: none; /* Let React Spring handle animations */
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .bottom-sheet {
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+  }
+}

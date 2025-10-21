@@ -13,6 +13,9 @@
   },
   "dependencies": {
     "@lingui/react": "^5.5.1",
+    "@radix-ui/themes": "^3.2.1",
+    "@react-spring/web": "^10.0.3",
+    "@use-gesture/react": "^10.3.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
