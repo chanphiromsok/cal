@@ -1,186 +1,249 @@
-import React, { useEffect, useRef, type ReactNode } from 'react'
-import { useSpring, animated, config } from '@react-spring/web'
-import { useDrag } from '@use-gesture/react'
-import { Box } from '@radix-ui/themes'
-import './BottomSheet.css'
+import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, type JSX, type PropsWithChildren } from 'react';
+import { useSpring, animated, config } from '@react-spring/web';
+import { useDrag } from '@use-gesture/react';
 
-export interface BottomSheetProps {
-  isOpen: boolean
-  onClose: () => void
-  children: ReactNode
-  snapPoints?: number[]
-  initialSnapIndex?: number
-  enablePanDownToClose?: boolean
-  backdropOpacity?: number
-  borderRadius?: number
+interface BottomSheetProps {
+  snapPoints?: number[];
+  defaultSnap?: number;
+  maxHeight?: number;
+  onClose?: () => void;
+  renderBackdrop?: (props: BackdropProps) => JSX.Element
 }
 
-export const BottomSheet: React.FC<BottomSheetProps> = ({
-  isOpen,
-  onClose,
+interface BackdropProps {
+  opacity: any; // animated value from react-spring
+  onClick: () => void;
+}
+
+export interface BottomSheetRef {
+  open: () => void;
+  close: () => void;
+  snapTo: (index: number) => void;
+}
+
+const BottomSheet = forwardRef<BottomSheetRef, PropsWithChildren<BottomSheetProps>>(({
   children,
-  snapPoints = [0.25, 0.5, 0.95],
-  initialSnapIndex = 1,
-  enablePanDownToClose = true,
-  backdropOpacity = 0.5,
-  borderRadius = 16
-}) => {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const currentSnapIndex = useRef(initialSnapIndex)
+  snapPoints = [0.3, 0.6, 0.9],
+  defaultSnap = 0.6,
+  maxHeight = 0.95,
+  onClose,
+  renderBackdrop
+}, ref) => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [viewportHeight, setViewportHeight] = useState<number>(window.innerHeight);
+  const [contentHeight, setContentHeight] = useState<number>(0);
+  const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [currentSnapIndex, setCurrentSnapIndex] = useState<number>(
+    snapPoints.indexOf(defaultSnap)
+  );
 
-  // Calculate snap positions (y positions from top)
-  const snapPositions = snapPoints.map(point => window.innerHeight * (1 - point))
-  const closedPosition = window.innerHeight
+  // Expose open/close methods via ref
+  useImperativeHandle(ref, () => ({
+    open: () => setIsOpen(true),
+    close: () => handleClose(),
+    snapTo: (index: number) => {
+      if (index >= 0 && index < snapPoints.length) {
+        const targetHeight = getSnapHeight(snapPoints[index]);
+        api.start({
+          y: viewportHeight - targetHeight,
+          config: config.stiff
+        });
+        setCurrentSnapIndex(index);
+      }
+    }
+  }));
 
-  // Main sheet animation - y represents vertical position from top
+  const handleClose = () => {
+    api.start({
+      y: viewportHeight,
+      config: config.stiff
+    });
+    setTimeout(() => {
+      setIsOpen(false);
+      if (onClose) onClose();
+    }, 300);
+  };
+
+  // Calculate actual heights based on snap points
+  const getSnapHeight = (snapPercent: number): number => {
+    const maxAllowedHeight = viewportHeight * maxHeight;
+    const snapHeight = viewportHeight * snapPercent;
+    const constrainedHeight = Math.min(
+      Math.min(snapHeight, maxAllowedHeight),
+      contentHeight || snapHeight
+    );
+    return constrainedHeight;
+  };
+
+  // Spring animation for sheet position
   const [{ y }, api] = useSpring(() => ({
-    y: closedPosition,
+    y: viewportHeight,
     config: config.stiff
-  }))
+  }));
 
-  // Backdrop animation
-  const [{ opacity }, backdropApi] = useSpring(() => ({
-    opacity: 0,
-    config: config.default
-  }))
+  // Update viewport height on resize
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportHeight(window.innerHeight);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  // Close function
-  const close = (velocity = 0) => {
-    api.start({ 
-      y: closedPosition, 
-      immediate: false, 
-      config: { ...config.stiff, velocity } 
-    })
-    backdropApi.start({ opacity: 0 })
-    onClose()
-  }
+  // Measure content height
+  useEffect(() => {
+    if (contentRef.current && isOpen) {
+      const observer = new ResizeObserver(entries => {
+        for (let entry of entries) {
+          setContentHeight(entry.contentRect.height + 80);
+        }
+      });
+      observer.observe(contentRef.current);
+      return () => observer.disconnect();
+    }
+  }, [isOpen, children]);
 
-  // Open/close effect
+  // Open/close animation
   useEffect(() => {
     if (isOpen) {
-      const targetY = snapPositions[currentSnapIndex.current]
-      api.start({ 
-        y: targetY, 
-        immediate: false, 
-        config: config.stiff 
-      })
-      backdropApi.start({ opacity: backdropOpacity })
+      const targetHeight = getSnapHeight(snapPoints[currentSnapIndex]);
+      api.start({
+        y: viewportHeight - targetHeight,
+        immediate: false
+      });
     } else {
-      api.start({ 
-        y: closedPosition, 
-        immediate: false, 
-        config: config.stiff 
-      })
-      backdropApi.start({ opacity: 0 })
+      api.start({
+        y: viewportHeight,
+        immediate: false
+      });
+      setCurrentSnapIndex(snapPoints.indexOf(defaultSnap));
     }
-  }, [isOpen, api, backdropApi, backdropOpacity, closedPosition, snapPositions])
+  }, [isOpen, viewportHeight, contentHeight]);
+
+  // Find nearest snap point
+  const findNearestSnap = (currentY: number, velocity: number): number => {
+    const currentHeight = viewportHeight - currentY;
+    const snapHeights = snapPoints.map(getSnapHeight);
+
+    if (velocity > 0.5 && currentHeight < snapHeights[0]) {
+      return -1;
+    }
+
+    let nearestIndex = 0;
+    let minDiff = Math.abs(currentHeight - snapHeights[0]);
+
+    snapHeights.forEach((height, index) => {
+      const diff = Math.abs(currentHeight - height);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearestIndex = index;
+      }
+    });
+
+    if (velocity > 0.5 && nearestIndex > 0) {
+      nearestIndex--;
+    } else if (velocity < -0.5 && nearestIndex < snapHeights.length - 1) {
+      nearestIndex++;
+    }
+
+    return nearestIndex;
+  };
 
   // Drag gesture handler
   const bind = useDrag(
-    ({ 
-      last, 
-      velocity: [, vy], 
-      direction: [, dy], 
-      offset: [, oy], 
-      canceled 
-    }) => {
+    ({ last, movement: [, my], velocity: [, vy], direction: [, dy], cancel }) => {
+      const targetY = (viewportHeight - getSnapHeight(snapPoints[currentSnapIndex])) + my;
+      const minY = viewportHeight - getSnapHeight(snapPoints[snapPoints.length - 1]);
+
+      if (targetY < minY) {
+        cancel();
+      }
 
       if (last) {
-        // Find closest snap point
-        let targetSnapIndex = 0
-        let minDistance = Infinity
-        
-        snapPositions.forEach((position: number, index: number) => {
-          const distance = Math.abs(oy - position)
-          if (distance < minDistance) {
-            minDistance = distance
-            targetSnapIndex = index
-          }
-        })
+        const snapIndex = findNearestSnap(targetY, vy * dy);
 
-        // Check if should close
-        const shouldClose = enablePanDownToClose && (
-          oy > window.innerHeight * 0.7 || // Dragged too far down
-          (vy > 0.5 && dy > 0) // Fast downward swipe
-        )
-
-        if (shouldClose) {
-          close(Math.abs(vy))
+        if (snapIndex === -1) {
+          handleClose();
         } else {
-          currentSnapIndex.current = targetSnapIndex
-          const targetPosition = snapPositions[targetSnapIndex]
+          const targetHeight = getSnapHeight(snapPoints[snapIndex]);
           api.start({
-            y: targetPosition,
-            config: canceled ? config.wobbly : config.stiff
-          })
+            y: viewportHeight - targetHeight,
+            config: config.stiff
+          });
+          setCurrentSnapIndex(snapIndex);
         }
       } else {
-        // While dragging, move the sheet
-        api.start({ y: oy, immediate: true })
+        api.start({
+          y: targetY,
+          immediate: true
+        });
       }
     },
-    { 
-      from: () => [0, y.get()], 
-      filterTaps: true, 
-      axis: 'y',
-      rubberband: true 
+    {
+      from: () => [0, y.get()],
+      filterTaps: true,
+      bounds: { top: viewportHeight - getSnapHeight(maxHeight) },
+      rubberband: true
     }
-  )
+  );
 
-  // Handle backdrop click
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose()
-    }
-  }
+  if (!isOpen && y.get() >= viewportHeight) return null;
 
-  // Handle resize
-  useEffect(() => {
-    const handleResize = () => {
-      if (isOpen) {
-        const newSnapPositions = snapPoints.map(point => window.innerHeight * (1 - point))
-        api.start({ y: newSnapPositions[currentSnapIndex.current] })
-      }
-    }
+  const backdropOpacity = y.to([viewportHeight, 0], [0, 0.5]);
 
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [isOpen, api, snapPoints])
+  const defaultBackdrop = (
+    <animated.div
+      className="fixed inset-0 bg-black z-40"
+      style={{
+        opacity: backdropOpacity,
+        pointerEvents: isOpen ? 'auto' : 'none'
+      }}
+      onClick={handleClose}
+    />
+  );
 
-  if (!isOpen && y.get() >= closedPosition) {
-    return null
-  }
+  const backdrop = renderBackdrop
+    ? renderBackdrop({ opacity: backdropOpacity, onClick: handleClose })
+    : defaultBackdrop;
 
   return (
-    <div className="bottom-sheet-container">
+    <>
       {/* Backdrop */}
+      {backdrop}
+      {/* Bottom Sheet */}
       <animated.div
-        className="bottom-sheet-backdrop"
-        style={{ opacity }}
-        onClick={handleBackdropClick}
-      />
-      
-      {/* Sheet */}
-      <animated.div
-        ref={containerRef}
-        className="bottom-sheet"
+        className="fixed left-0 right-0 bottom-0 bg-white rounded-t-3xl shadow-2xl z-50 flex flex-col"
         style={{
           y,
-          borderTopLeftRadius: borderRadius,
-          borderTopRightRadius: borderRadius
+          touchAction: 'none',
+          maxHeight: `${maxHeight * 100}vh`
         }}
-        {...bind()}
       >
-        {/* Handle */}
-        <div className="bottom-sheet-handle" />
-        
-        {/* Content */}
-        <Box className="bottom-sheet-content">
-          {children}
-        </Box>
-      </animated.div>
-    </div>
-  )
-}
+        {/* Grabber Area */}
+        <div
+          {...bind()}
+          className="flex justify-center items-center py-4 cursor-grab active:cursor-grabbing"
+          style={{ touchAction: 'none' }}
+        >
+          <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
+        </div>
 
-export default BottomSheet
+        {/* Content */}
+        <div
+          ref={contentRef}
+          className="flex-1 overflow-y-auto px-6 pb-6"
+          style={{
+            overscrollBehavior: 'contain',
+            WebkitOverflowScrolling: 'touch'
+          }}
+        >
+          {children}
+        </div>
+      </animated.div>
+    </>
+  );
+});
+
+BottomSheet.displayName = 'BottomSheet';
+
+export default BottomSheet;
